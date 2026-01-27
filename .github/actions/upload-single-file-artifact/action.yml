@@ -1,0 +1,22 @@
+name: "upload-single-file-artifact"
+description: "Upload a single file as a GitHub Actions artifact without zipping (dkattan/toolkit @actions/artifact fork)."
+
+inputs:
+  name:
+    description: "Artifact name"
+    required: true
+  file:
+    description: "Path to the file to upload"
+    required: true
+  retention-days:
+    description: "Optional retention days"
+    required: false
+    default: ""
+  debug-env:
+    description: "Print partial ACTIONS_RUNTIME_* env vars (for debugging)"
+    required: false
+    default: "false"
+
+runs:
+  using: "node20"
+  main: "index.cjs"

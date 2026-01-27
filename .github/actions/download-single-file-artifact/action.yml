@@ -1,0 +1,22 @@
+name: "download-single-file-artifact"
+description: "Download a single GitHub Actions artifact and optionally verify its SHA-256 (dkattan/toolkit @actions/artifact fork)."
+
+inputs:
+  name:
+    description: "Artifact name"
+    required: true
+  download-dir:
+    description: "Directory to download into"
+    required: true
+  expected-sha256:
+    description: "Optional expected SHA-256 hex for verification"
+    required: false
+    default: ""
+  debug-env:
+    description: "Print partial ACTIONS_RUNTIME_* env vars (for debugging)"
+    required: false
+    default: "false"
+
+runs:
+  using: "node20"
+  main: "index.cjs"

@@ -1,0 +1,164 @@
+name: Artifact runtime env smoke
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/artifact-runtime-env-smoke.yml
+      - .github/actions/**
+      - scripts/upload-single-file-artifact.cjs
+      - scripts/download-single-file-artifact.cjs
+      - packages/artifact/**
+
+jobs:
+  smoke-host:
+    name: Smoke (host runner)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install + build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run bootstrap
+          npm run build
+          test -f packages/artifact/lib/artifact.js
+
+      - name: Print runtime env (partial)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${ACTIONS_RUNTIME_TOKEN:-}" ]; then
+            token="$ACTIONS_RUNTIME_TOKEN"
+            echo "ACTIONS_RUNTIME_TOKEN=${token:0:6}…${token: -6} (len=${#token})"
+          else
+            echo "ACTIONS_RUNTIME_TOKEN=<unset>"
+          fi
+          echo "ACTIONS_RUNTIME_URL=${ACTIONS_RUNTIME_URL:-<unset>}"
+          echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL:-<unset>}"
+
+      - name: Create tiny file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-assets
+          printf 'smoke artifact content\n' > smoke-assets/smoke.mp4
+          ls -la smoke-assets/smoke.mp4
+
+      - name: Compute SHA-256 (source)
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum smoke-assets/smoke.mp4 | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "SHA256(source)=$sha"
+
+      - name: Upload tiny file (toolkit zip:false)
+        uses: ./.github/actions/upload-single-file-artifact
+        with:
+          name: smoke-toolkit
+          file: smoke-assets/smoke.mp4
+          retention-days: '1'
+          debug-env: 'true'
+
+      - name: Download tiny file (toolkit) + verify SHA-256
+        uses: ./.github/actions/download-single-file-artifact
+        with:
+          name: smoke-toolkit
+          download-dir: downloaded
+          expected-sha256: ${{ steps.sha.outputs.sha256 }}
+          debug-env: 'true'
+
+  smoke-container:
+    name: Smoke (container job)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.0-jammy
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Mark workspace as safe for git
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install + build
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run bootstrap
+          npm run build
+          test -f packages/artifact/lib/artifact.js
+
+      - name: Print runtime env (partial)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${ACTIONS_RUNTIME_TOKEN:-}" ]; then
+            token="$ACTIONS_RUNTIME_TOKEN"
+            echo "ACTIONS_RUNTIME_TOKEN=${token:0:6}…${token: -6} (len=${#token})"
+          else
+            echo "ACTIONS_RUNTIME_TOKEN=<unset>"
+          fi
+          echo "ACTIONS_RUNTIME_URL=${ACTIONS_RUNTIME_URL:-<unset>}"
+          echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL:-<unset>}"
+
+      - name: Create tiny file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p smoke-assets
+          printf 'smoke artifact content\n' > smoke-assets/smoke.mp4
+          ls -la smoke-assets/smoke.mp4
+
+      - name: Compute SHA-256 (source)
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(sha256sum smoke-assets/smoke.mp4 | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "SHA256(source)=$sha"
+
+      - name: Upload tiny file (toolkit zip:false)
+        uses: ./.github/actions/upload-single-file-artifact
+        with:
+          name: smoke-toolkit-container
+          file: smoke-assets/smoke.mp4
+          retention-days: '1'
+          debug-env: 'true'
+
+      - name: Download tiny file (toolkit) + verify SHA-256
+        uses: ./.github/actions/download-single-file-artifact
+        with:
+          name: smoke-toolkit-container
+          download-dir: downloaded
+          expected-sha256: ${{ steps.sha.outputs.sha256 }}
+          debug-env: 'true'
