@@ -50,6 +50,11 @@ export interface UploadArtifactOptions {
    * For large files that are not easily compressed, a value of 0 is recommended for significantly faster uploads.
    */
   compressionLevel?: number
+  /**
+   * If true, files will be uploaded as a zip archive. If false and exactly one file is provided,
+   * the file will be uploaded directly without zipping. Defaults to true.
+   */
+  zip?: boolean
 }
 
 /**
@@ -113,13 +118,11 @@ export interface DownloadArtifactOptions {
    * matches the expected hash.
    */
   expectedHash?: string
-}
-
-export interface StreamExtractResponse {
   /**
-   * The SHA256 hash of the downloaded file
+   * If true, downloaded artifacts will be unzipped. If false and the artifact is a single file,
+   * it will be saved directly without extraction. Defaults to true.
    */
-  sha256Digest?: string
+  unzip?: boolean
 }
 
 /**
@@ -185,4 +188,14 @@ export interface DeleteArtifactResponse {
    * The id of the artifact that was deleted
    */
   id: number
+}
+
+/**
+ * Response from the server when extracting a stream
+ */
+export interface StreamExtractResponse {
+  /**
+   * The SHA256 hash of the downloaded file
+   */
+  sha256Digest?: string
 }

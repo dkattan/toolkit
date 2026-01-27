@@ -78,6 +78,29 @@ const artifact = new DefaultArtifactClient()
 
 ℹ️ For a comprehensive list of classes, interfaces, functions and more, see the [generated documentation](./docs/generated/README.md).
 
+## Using the `dkattan/toolkit` fork
+
+If you need to test changes to the artifact implementation before they are released on npm, you can consume this fork:
+
+- https://github.com/dkattan/toolkit
+
+Because this is a monorepo, installing a single package directly from git depends on your package manager.
+
+### Option A: `pnpm` (recommended for direct-from-git installs)
+
+`pnpm` supports installing a package from a subdirectory of a git repository:
+
+- `github:dkattan/toolkit#path:packages/artifact`
+
+### Option B: `npm pack` (works everywhere)
+
+1. Clone the fork and build:
+  - `npm install`
+  - `npm run build`
+2. Create a tarball for `@actions/artifact`:
+  - `cd packages/artifact && npm pack`
+3. In your other repository, install the generated `.tgz` file as a dependency.
+
 ## Examples
 
 ### Upload and Download
@@ -105,6 +128,27 @@ const {downloadPath} = await artifact.downloadArtifact(id, {
 })
 
 console.log(`Downloaded artifact ${id} to: ${downloadPath}`)
+```
+
+#### Uploading/downloading a single file without zipping
+
+If you are uploading exactly one file and want to avoid the zip step (and download it without extraction), you can use `zip: false` and `unzip: false`:
+
+```js
+const {id, digest} = await artifact.uploadArtifact(
+  'my-file.txt',
+  ['/absolute/path/my-file.txt'],
+  '/absolute/path',
+  {zip: false}
+)
+
+// Later...
+await artifact.downloadArtifact(id, {
+  path: '/tmp/dst/path',
+  unzip: false,
+  // optional integrity check
+  expectedHash: digest
+})
 ```
 
 ### Delete an Artifact

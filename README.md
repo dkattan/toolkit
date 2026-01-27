@@ -13,6 +13,14 @@
 
 The GitHub Actions ToolKit provides a set of packages to make creating actions easier.
 
+## dkattan fork
+
+This repository is sometimes forked for testing or experimenting with changes before they land upstream.
+
+- Fork: https://github.com/dkattan/toolkit
+
+If you want to consume the modified `@actions/artifact` implementation (the library behind `upload-artifact` / `download-artifact`) from another repository, see [`packages/artifact`](packages/artifact) for usage and fork-consumption notes.
+
 <br/>
 <h3 align="center">Get started with the <a href="https://github.com/actions/javascript-action">javascript-action template</a>!</h3>
 <br/>

@@ -620,6 +620,70 @@ describe('download-artifact', () => {
         name: fixtures.artifactName
       })
     })
+
+    it('should download to a file when unzip=false', async () => {
+      const mockListArtifacts = jest
+        .spyOn(ArtifactServiceClientJSON.prototype, 'ListArtifacts')
+        .mockResolvedValue({
+          artifacts: [
+            {
+              ...fixtures.backendIds,
+              databaseId: fixtures.artifactID.toString(),
+              name: 'single-file.txt',
+              size: fixtures.artifactSize.toString()
+            }
+          ]
+        })
+
+      const mockGetSignedArtifactURL = jest
+        .spyOn(ArtifactServiceClientJSON.prototype, 'GetSignedArtifactURL')
+        .mockReturnValue(
+          Promise.resolve({
+            signedUrl: fixtures.blobStorageUrl
+          })
+        )
+
+      const mockGetArtifactText = jest.fn(() => {
+        const message = new http.IncomingMessage(new net.Socket())
+        message.statusCode = 200
+        message.push(Buffer.from('plain file contents', 'utf8'))
+        message.push(null)
+        return {message}
+      })
+
+      const mockHttpClient = (HttpClient as jest.Mock).mockImplementation(
+        () => {
+          return {
+            get: mockGetArtifactText
+          }
+        }
+      )
+
+      const response = await downloadArtifactInternal(fixtures.artifactID, {
+        unzip: false
+      })
+
+      const expectedFilePath = path.join(
+        fixtures.workspaceDir,
+        'single-file.txt'
+      )
+      expect(fs.existsSync(expectedFilePath)).toBe(true)
+      expect(fs.readFileSync(expectedFilePath, 'utf8')).toBe(
+        'plain file contents'
+      )
+      expect(response.downloadPath).toBe(expectedFilePath)
+      expect(mockHttpClient).toHaveBeenCalledWith(getUserAgentString())
+      expect(mockListArtifacts).toHaveBeenCalledWith({
+        idFilter: {
+          value: fixtures.artifactID.toString()
+        },
+        ...fixtures.backendIds
+      })
+      expect(mockGetSignedArtifactURL).toHaveBeenCalledWith({
+        ...fixtures.backendIds,
+        name: 'single-file.txt'
+      })
+    })
   })
 
   describe('streamExtractExternal', () => {

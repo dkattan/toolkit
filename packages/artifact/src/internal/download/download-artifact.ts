@@ -1,6 +1,8 @@
 import fs from 'fs/promises'
+import {createWriteStream} from 'fs'
 import * as crypto from 'crypto'
 import * as stream from 'stream'
+import * as path from 'path'
 
 import * as github from '@actions/github'
 import * as core from '@actions/core'
@@ -21,6 +23,26 @@ import {
 } from '../../generated'
 import {getBackendIdsFromToken} from '../shared/util'
 import {ArtifactNotFoundError} from '../shared/errors'
+
+function createHashingTransform(hash: crypto.Hash): stream.Transform {
+  return new stream.Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        hash.update(chunk as Buffer)
+        callback(null, chunk)
+      } catch (error) {
+        callback(error as Error)
+      }
+    }
+  })
+}
+
+function normalizeExpectedHash(expectedHash: string): string {
+  if (expectedHash.startsWith('sha256:')) {
+    return expectedHash
+  }
+  return `sha256:${expectedHash}`
+}
 
 const scrubQueryParameters = (url: string): string => {
   const parsed = new URL(url)
@@ -62,6 +84,27 @@ async function streamExtract(
   throw new Error(`Artifact download failed after ${retryCount} retries.`)
 }
 
+async function streamDownload(
+  url: string,
+  filePath: string
+): Promise<StreamExtractResponse> {
+  let retryCount = 0
+  while (retryCount < 5) {
+    try {
+      return await streamDownloadExternal(url, filePath)
+    } catch (error) {
+      retryCount++
+      core.debug(
+        `Failed to download artifact after ${retryCount} retries due to ${error.message}. Retrying in 5 seconds...`
+      )
+      // wait 5 seconds before retrying
+      await new Promise(resolve => setTimeout(resolve, 5000))
+    }
+  }
+
+  throw new Error(`Artifact download failed after ${retryCount} retries.`)
+}
+
 export async function streamExtractExternal(
   url: string,
   directory: string,
@@ -87,14 +130,10 @@ export async function streamExtractExternal(
     }
     const timer = setTimeout(timerFn, opts.timeout)
 
-    const hashStream = crypto.createHash('sha256').setEncoding('hex')
-    const passThrough = new stream.PassThrough()
+    const hash = crypto.createHash('sha256')
+    const hashingStream = createHashingTransform(hash)
 
-    response.message.pipe(passThrough)
-    passThrough.pipe(hashStream)
-    const extractStream = passThrough
-
-    extractStream
+    response.message
       .on('data', () => {
         timer.refresh()
       })
@@ -105,18 +144,69 @@ export async function streamExtractExternal(
         clearTimeout(timer)
         reject(error)
       })
+      .pipe(hashingStream)
       .pipe(unzip.Extract({path: directory}))
       .on('close', () => {
         clearTimeout(timer)
-        if (hashStream) {
-          hashStream.end()
-          sha256Digest = hashStream.read() as string
-          core.info(`SHA256 digest of downloaded artifact is ${sha256Digest}`)
-        }
+        sha256Digest = hash.digest('hex')
+        core.info(`SHA256 digest of downloaded artifact is ${sha256Digest}`)
         resolve({sha256Digest: `sha256:${sha256Digest}`})
       })
       .on('error', (error: Error) => {
         reject(error)
+      })
+  })
+}
+
+export async function streamDownloadExternal(
+  url: string,
+  filePath: string,
+  opts: {timeout: number} = {timeout: 30 * 1000}
+): Promise<StreamExtractResponse> {
+  const client = new httpClient.HttpClient(getUserAgentString())
+  const response = await client.get(url)
+  if (response.message.statusCode !== 200) {
+    throw new Error(
+      `Unexpected HTTP response from blob storage: ${response.message.statusCode} ${response.message.statusMessage}`
+    )
+  }
+
+  await fs.mkdir(path.dirname(filePath), {recursive: true})
+
+  return new Promise((resolve, reject) => {
+    const timerFn = (): void => {
+      const timeoutError = new Error(
+        `Blob storage chunk did not respond in ${opts.timeout}ms`
+      )
+      response.message.destroy(timeoutError)
+      reject(timeoutError)
+    }
+    const timer = setTimeout(timerFn, opts.timeout)
+
+    const hash = crypto.createHash('sha256')
+    const hashingStream = createHashingTransform(hash)
+    const out = createWriteStream(filePath)
+
+    out.on('error', error => {
+      clearTimeout(timer)
+      reject(error)
+    })
+
+    response.message
+      .on('data', () => {
+        timer.refresh()
+      })
+      .on('error', (error: Error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      .pipe(hashingStream)
+      .pipe(out)
+      .on('close', () => {
+        clearTimeout(timer)
+        const sha256Digest = hash.digest('hex')
+        core.info(`SHA256 digest of downloaded artifact is ${sha256Digest}`)
+        resolve({sha256Digest: `sha256:${sha256Digest}`})
       })
   })
 }
@@ -161,22 +251,35 @@ export async function downloadArtifactPublic(
     `Redirecting to blob download url: ${scrubQueryParameters(location)}`
   )
 
+  const unzipArtifact = options?.unzip !== false
+  const resolvedDownloadPath = unzipArtifact
+    ? downloadPath
+    : path.join(downloadPath, `${artifactId}.zip`)
+
   try {
-    core.info(`Starting download of artifact to: ${downloadPath}`)
-    const extractResponse = await streamExtract(location, downloadPath)
+    core.info(`Starting download of artifact to: ${resolvedDownloadPath}`)
+    const downloadResponse = unzipArtifact
+      ? await streamExtract(location, downloadPath)
+      : await streamDownload(location, resolvedDownloadPath)
+
     core.info(`Artifact download completed successfully.`)
     if (options?.expectedHash) {
-      if (options?.expectedHash !== extractResponse.sha256Digest) {
+      const normalizedExpected = normalizeExpectedHash(options.expectedHash)
+      if (normalizedExpected !== downloadResponse.sha256Digest) {
         digestMismatch = true
-        core.debug(`Computed digest: ${extractResponse.sha256Digest}`)
-        core.debug(`Expected digest: ${options.expectedHash}`)
+        core.debug(`Computed digest: ${downloadResponse.sha256Digest}`)
+        core.debug(`Expected digest: ${normalizedExpected}`)
       }
     }
   } catch (error) {
-    throw new Error(`Unable to download and extract artifact: ${error.message}`)
+    throw new Error(
+      unzipArtifact
+        ? `Unable to download and extract artifact: ${error.message}`
+        : `Unable to download artifact: ${error.message}`
+    )
   }
 
-  return {downloadPath, digestMismatch}
+  return {downloadPath: resolvedDownloadPath, digestMismatch}
 }
 
 export async function downloadArtifactInternal(
@@ -222,22 +325,35 @@ export async function downloadArtifactInternal(
     `Redirecting to blob download url: ${scrubQueryParameters(signedUrl)}`
   )
 
+  const unzipArtifact = options?.unzip !== false
+  const resolvedDownloadPath = unzipArtifact
+    ? downloadPath
+    : path.join(downloadPath, artifacts[0].name)
+
   try {
-    core.info(`Starting download of artifact to: ${downloadPath}`)
-    const extractResponse = await streamExtract(signedUrl, downloadPath)
+    core.info(`Starting download of artifact to: ${resolvedDownloadPath}`)
+    const downloadResponse = unzipArtifact
+      ? await streamExtract(signedUrl, downloadPath)
+      : await streamDownload(signedUrl, resolvedDownloadPath)
+
     core.info(`Artifact download completed successfully.`)
     if (options?.expectedHash) {
-      if (options?.expectedHash !== extractResponse.sha256Digest) {
+      const normalizedExpected = normalizeExpectedHash(options.expectedHash)
+      if (normalizedExpected !== downloadResponse.sha256Digest) {
         digestMismatch = true
-        core.debug(`Computed digest: ${extractResponse.sha256Digest}`)
-        core.debug(`Expected digest: ${options.expectedHash}`)
+        core.debug(`Computed digest: ${downloadResponse.sha256Digest}`)
+        core.debug(`Expected digest: ${normalizedExpected}`)
       }
     }
   } catch (error) {
-    throw new Error(`Unable to download and extract artifact: ${error.message}`)
+    throw new Error(
+      unzipArtifact
+        ? `Unable to download and extract artifact: ${error.message}`
+        : `Unable to download artifact: ${error.message}`
+    )
   }
 
-  return {downloadPath, digestMismatch}
+  return {downloadPath: resolvedDownloadPath, digestMismatch}
 }
 
 async function resolveOrCreateDirectory(

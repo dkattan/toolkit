@@ -12,7 +12,7 @@ import {
   validateRootDirectory
 } from './upload-zip-specification'
 import {getBackendIdsFromToken} from '../shared/util'
-import {uploadZipToBlobStorage} from './blob-upload'
+import {uploadZipToBlobStorage, uploadFileToBlobStorage} from './blob-upload'
 import {createZipUploadStream} from './zip'
 import {
   CreateArtifactRequest,
@@ -68,16 +68,41 @@ export async function uploadArtifact(
     )
   }
 
-  const zipUploadStream = await createZipUploadStream(
-    zipSpecification,
-    options?.compressionLevel
-  )
+  // Upload to blob storage - handle both zip and direct file uploads
+  let uploadResult: {uploadSize?: number; sha256Hash?: string} = {}
+  if (options?.zip === false) {
+    if (files.length !== 1) {
+      throw new Error(
+        'zip=false is only supported when exactly one file is provided'
+      )
+    }
 
-  // Upload zip to blob storage
-  const uploadResult = await uploadZipToBlobStorage(
-    createArtifactResp.signedUploadUrl,
-    zipUploadStream
-  )
+    if (zipSpecification.length !== 1 || !zipSpecification[0].sourcePath) {
+      throw new Error(
+        'zip=false is only supported for a single file (directories are not supported)'
+      )
+    }
+
+    // Direct file upload when zip=false and exactly one file
+    core.info('Uploading single file directly without zipping')
+    const filePath = zipSpecification[0].sourcePath
+    uploadResult = await uploadFileToBlobStorage(
+      createArtifactResp.signedUploadUrl,
+      filePath
+    )
+  } else {
+    // Default behavior: create zip and upload
+    const zipUploadStream = await createZipUploadStream(
+      zipSpecification,
+      options?.compressionLevel
+    )
+
+    // Upload zip to blob storage
+    uploadResult = await uploadZipToBlobStorage(
+      createArtifactResp.signedUploadUrl,
+      zipUploadStream
+    )
+  }
 
   // finalize the artifact
   const finalizeArtifactReq: FinalizeArtifactRequest = {
@@ -105,7 +130,7 @@ export async function uploadArtifact(
 
   const artifactId = BigInt(finalizeArtifactResp.artifactId)
   core.info(
-    `Artifact ${name}.zip successfully finalized. Artifact ID ${artifactId}`
+    `Artifact ${name}${options?.zip === false && files.length === 1 ? '' : '.zip'} successfully finalized. Artifact ID ${artifactId}`
   )
 
   return {

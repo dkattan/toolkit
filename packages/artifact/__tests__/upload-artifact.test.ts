@@ -322,6 +322,60 @@ describe('upload-artifact', () => {
     }
   })
 
+  it('should upload a single file directly when zip=false', async () => {
+    const singleFile = fixtures.files[0]
+    const singleFilePath = path.join(fixtures.uploadDirectory, singleFile.name)
+
+    jest
+      .spyOn(uploadZipSpecification, 'getUploadZipSpecification')
+      .mockReturnValue([
+        {
+          sourcePath: singleFilePath,
+          destinationPath: singleFile.name,
+          stats: fs.statSync(singleFilePath)
+        }
+      ])
+
+    jest
+      .spyOn(ArtifactServiceClientJSON.prototype, 'CreateArtifact')
+      .mockReturnValue(
+        Promise.resolve({
+          ok: true,
+          signedUploadUrl: 'https://signed-upload-url.com'
+        })
+      )
+    jest
+      .spyOn(ArtifactServiceClientJSON.prototype, 'FinalizeArtifact')
+      .mockReturnValue(Promise.resolve({ok: true, artifactId: '2'}))
+
+    const uploadFileSpy = jest
+      .spyOn(blobUpload, 'uploadFileToBlobStorage')
+      .mockResolvedValue({
+        uploadSize: 123,
+        sha256Hash: 'a'.repeat(64)
+      })
+    const uploadZipSpy = jest.spyOn(blobUpload, 'uploadZipToBlobStorage')
+    const createZipSpy = jest.spyOn(zip, 'createZipUploadStream')
+
+    const {id, size, digest} = await uploadArtifact(
+      'single-file-artifact',
+      [singleFilePath],
+      fixtures.uploadDirectory,
+      {zip: false}
+    )
+
+    expect(id).toBe(2)
+    expect(size).toBe(123)
+    expect(digest).toBe('a'.repeat(64))
+
+    expect(uploadFileSpy).toHaveBeenCalledWith(
+      'https://signed-upload-url.com',
+      singleFilePath
+    )
+    expect(uploadZipSpy).not.toHaveBeenCalled()
+    expect(createZipSpy).not.toHaveBeenCalled()
+  })
+
   it('should throw an error uploading blob chunks get delayed', async () => {
     jest
       .spyOn(ArtifactServiceClientJSON.prototype, 'CreateArtifact')
