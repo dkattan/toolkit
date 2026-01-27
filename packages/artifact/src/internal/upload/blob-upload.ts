@@ -1,6 +1,6 @@
-import {BlobClient, BlockBlobUploadStreamOptions} from '@azure/storage-blob'
-import {TransferProgressEvent} from '@azure/core-http-compat'
-import {ZipUploadStream} from './zip'
+import { BlobClient, BlockBlobUploadStreamOptions } from '@azure/storage-blob'
+import { TransferProgressEvent } from '@azure/core-http-compat'
+import { ZipUploadStream } from './zip'
 import {
   getUploadChunkSize,
   getConcurrency,
@@ -9,7 +9,7 @@ import {
 import * as core from '@actions/core'
 import * as crypto from 'crypto'
 import * as stream from 'stream'
-import {NetworkError} from '../shared/errors'
+import { NetworkError } from '../shared/errors'
 import * as fs from 'fs'
 
 function createHashingTransform(hash: crypto.Hash): stream.Transform {
@@ -75,7 +75,7 @@ export async function uploadZipToBlobStorage(
   }
 
   const options: BlockBlobUploadStreamOptions = {
-    blobHTTPHeaders: {blobContentType: 'application/zip'},
+    blobHTTPHeaders: { blobContentType: 'application/zip' },
     onProgress: uploadCallback,
     abortSignal: abortController.signal
   }
@@ -158,7 +158,7 @@ export async function uploadFileToBlobStorage(
   }
 
   const options: BlockBlobUploadStreamOptions = {
-    blobHTTPHeaders: {blobContentType: 'application/octet-stream'},
+    blobHTTPHeaders: { blobContentType: 'application/octet-stream' },
     onProgress: uploadCallback,
     abortSignal: abortController.signal
   }

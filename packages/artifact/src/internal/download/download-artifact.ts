@@ -1,5 +1,5 @@
 import fs from 'fs/promises'
-import {createWriteStream} from 'fs'
+import { createWriteStream } from 'fs'
 import * as crypto from 'crypto'
 import * as stream from 'stream'
 import * as path from 'path'
@@ -13,16 +13,16 @@ import {
   DownloadArtifactResponse,
   StreamExtractResponse
 } from '../shared/interfaces'
-import {getUserAgentString} from '../shared/user-agent'
-import {getGitHubWorkspaceDir} from '../shared/config'
-import {internalArtifactTwirpClient} from '../shared/artifact-twirp-client'
+import { getUserAgentString } from '../shared/user-agent'
+import { getGitHubWorkspaceDir } from '../shared/config'
+import { internalArtifactTwirpClient } from '../shared/artifact-twirp-client'
 import {
   GetSignedArtifactURLRequest,
   Int64Value,
   ListArtifactsRequest
 } from '../../generated'
-import {getBackendIdsFromToken} from '../shared/util'
-import {ArtifactNotFoundError} from '../shared/errors'
+import { getBackendIdsFromToken } from '../shared/util'
+import { ArtifactNotFoundError } from '../shared/errors'
 
 function createHashingTransform(hash: crypto.Hash): stream.Transform {
   return new stream.Transform({
@@ -108,7 +108,7 @@ async function streamDownload(
 export async function streamExtractExternal(
   url: string,
   directory: string,
-  opts: {timeout: number} = {timeout: 30 * 1000}
+  opts: { timeout: number } = { timeout: 30 * 1000 }
 ): Promise<StreamExtractResponse> {
   const client = new httpClient.HttpClient(getUserAgentString())
   const response = await client.get(url)
@@ -145,12 +145,12 @@ export async function streamExtractExternal(
         reject(error)
       })
       .pipe(hashingStream)
-      .pipe(unzip.Extract({path: directory}))
+      .pipe(unzip.Extract({ path: directory }))
       .on('close', () => {
         clearTimeout(timer)
         sha256Digest = hash.digest('hex')
         core.info(`SHA256 digest of downloaded artifact is ${sha256Digest}`)
-        resolve({sha256Digest: `sha256:${sha256Digest}`})
+        resolve({ sha256Digest: `sha256:${sha256Digest}` })
       })
       .on('error', (error: Error) => {
         reject(error)
@@ -161,7 +161,7 @@ export async function streamExtractExternal(
 export async function streamDownloadExternal(
   url: string,
   filePath: string,
-  opts: {timeout: number} = {timeout: 30 * 1000}
+  opts: { timeout: number } = { timeout: 30 * 1000 }
 ): Promise<StreamExtractResponse> {
   const client = new httpClient.HttpClient(getUserAgentString())
   const response = await client.get(url)
@@ -171,7 +171,7 @@ export async function streamDownloadExternal(
     )
   }
 
-  await fs.mkdir(path.dirname(filePath), {recursive: true})
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
 
   return new Promise((resolve, reject) => {
     const timerFn = (): void => {
@@ -206,7 +206,7 @@ export async function streamDownloadExternal(
         clearTimeout(timer)
         const sha256Digest = hash.digest('hex')
         core.info(`SHA256 digest of downloaded artifact is ${sha256Digest}`)
-        resolve({sha256Digest: `sha256:${sha256Digest}`})
+        resolve({ sha256Digest: `sha256:${sha256Digest}` })
       })
   })
 }
@@ -228,7 +228,7 @@ export async function downloadArtifactPublic(
     `Downloading artifact '${artifactId}' from '${repositoryOwner}/${repositoryName}'`
   )
 
-  const {headers, status} = await api.rest.actions.downloadArtifact({
+  const { headers, status } = await api.rest.actions.downloadArtifact({
     owner: repositoryOwner,
     repo: repositoryName,
     artifact_id: artifactId,
@@ -242,7 +242,7 @@ export async function downloadArtifactPublic(
     throw new Error(`Unable to download artifact. Unexpected status: ${status}`)
   }
 
-  const {location} = headers
+  const { location } = headers
   if (!location) {
     throw new Error(`Unable to redirect to artifact download url`)
   }
@@ -279,7 +279,7 @@ export async function downloadArtifactPublic(
     )
   }
 
-  return {downloadPath: resolvedDownloadPath, digestMismatch}
+  return { downloadPath: resolvedDownloadPath, digestMismatch }
 }
 
 export async function downloadArtifactInternal(
@@ -292,16 +292,16 @@ export async function downloadArtifactInternal(
 
   let digestMismatch = false
 
-  const {workflowRunBackendId, workflowJobRunBackendId} =
+  const { workflowRunBackendId, workflowJobRunBackendId } =
     getBackendIdsFromToken()
 
   const listReq: ListArtifactsRequest = {
     workflowRunBackendId,
     workflowJobRunBackendId,
-    idFilter: Int64Value.create({value: artifactId.toString()})
+    idFilter: Int64Value.create({ value: artifactId.toString() })
   }
 
-  const {artifacts} = await artifactClient.ListArtifacts(listReq)
+  const { artifacts } = await artifactClient.ListArtifacts(listReq)
 
   if (artifacts.length === 0) {
     throw new ArtifactNotFoundError(
@@ -319,7 +319,7 @@ export async function downloadArtifactInternal(
     name: artifacts[0].name
   }
 
-  const {signedUrl} = await artifactClient.GetSignedArtifactURL(signedReq)
+  const { signedUrl } = await artifactClient.GetSignedArtifactURL(signedReq)
 
   core.info(
     `Redirecting to blob download url: ${scrubQueryParameters(signedUrl)}`
@@ -353,7 +353,7 @@ export async function downloadArtifactInternal(
     )
   }
 
-  return {downloadPath: resolvedDownloadPath, digestMismatch}
+  return { downloadPath: resolvedDownloadPath, digestMismatch }
 }
 
 async function resolveOrCreateDirectory(
@@ -363,7 +363,7 @@ async function resolveOrCreateDirectory(
     core.debug(
       `Artifact destination folder does not exist, creating: ${downloadPath}`
     )
-    await fs.mkdir(downloadPath, {recursive: true})
+    await fs.mkdir(downloadPath, { recursive: true })
   } else {
     core.debug(`Artifact destination folder already exists: ${downloadPath}`)
   }

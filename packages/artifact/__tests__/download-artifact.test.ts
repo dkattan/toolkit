@@ -3,8 +3,8 @@ import * as http from 'http'
 import * as net from 'net'
 import * as path from 'path'
 import * as github from '@actions/github'
-import {HttpClient} from '@actions/http-client'
-import type {RestEndpointMethods} from '@octokit/plugin-rest-endpoint-methods/dist-types/generated/method-types'
+import { HttpClient } from '@actions/http-client'
+import type { RestEndpointMethods } from '@octokit/plugin-rest-endpoint-methods/dist-types/generated/method-types'
 import archiver from 'archiver'
 
 import {
@@ -12,10 +12,10 @@ import {
   downloadArtifactPublic,
   streamExtractExternal
 } from '../src/internal/download/download-artifact'
-import {getUserAgentString} from '../src/internal/shared/user-agent'
-import {noopLogs} from './common'
+import { getUserAgentString } from '../src/internal/shared/user-agent'
+import { noopLogs } from './common'
 import * as config from '../src/internal/shared/config'
-import {ArtifactServiceClientJSON} from '../src/generated'
+import { ArtifactServiceClientJSON } from '../src/generated'
 import * as util from '../src/internal/shared/util'
 
 type MockedDownloadArtifact = jest.MockedFunction<
@@ -66,10 +66,10 @@ jest.mock('@actions/http-client')
 // Create a zip archive with the contents of the example artifact
 const createTestArchive = async (): Promise<void> => {
   const archive = archiver('zip', {
-    zlib: {level: 9}
+    zlib: { level: 9 }
   })
   for (const file of fixtures.exampleArtifact.files) {
-    archive.append(file.content, {name: file.path})
+    archive.append(file.content, { name: file.path })
   }
   archive.finalize()
 
@@ -89,7 +89,7 @@ const expectExtractedArchive = async (dir: string): Promise<void> => {
 
 const setup = async (): Promise<void> => {
   noopLogs()
-  await fs.promises.mkdir(testDir, {recursive: true})
+  await fs.promises.mkdir(testDir, { recursive: true })
   await createTestArchive()
 
   process.env['GITHUB_WORKSPACE'] = fixtures.workspaceDir
@@ -97,7 +97,7 @@ const setup = async (): Promise<void> => {
 
 const cleanup = async (): Promise<void> => {
   jest.restoreAllMocks()
-  await fs.promises.rm(testDir, {recursive: true})
+  await fs.promises.rm(testDir, { recursive: true })
   delete process.env['GITHUB_WORKSPACE']
 }
 
@@ -648,7 +648,7 @@ describe('download-artifact', () => {
         message.statusCode = 200
         message.push(Buffer.from('plain file contents', 'utf8'))
         message.push(null)
-        return {message}
+        return { message }
       })
 
       const mockHttpClient = (HttpClient as jest.Mock).mockImplementation(
@@ -702,7 +702,7 @@ describe('download-artifact', () => {
         await streamExtractExternal(
           fixtures.blobStorageUrl,
           fixtures.workspaceDir,
-          {timeout: 2}
+          { timeout: 2 }
         )
         expect(true).toBe(false) // should not be called
       } catch (e) {
