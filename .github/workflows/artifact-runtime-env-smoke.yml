@@ -26,6 +26,11 @@ jobs:
     name: Smoke (host runner)
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,16 +69,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p smoke-assets
-          printf 'smoke artifact content\n' > smoke-assets/smoke.mp4
-          ls -la smoke-assets/smoke.mp4
+          test -f demo.mp4
+          ls -la demo.mp4
 
       - name: Compute SHA-256 (source)
         id: sha
         shell: bash
         run: |
           set -euo pipefail
-          sha=$(sha256sum smoke-assets/smoke.mp4 | awk '{print $1}')
+          sha=$(sha256sum demo.mp4 | awk '{print $1}')
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
           echo "SHA256(source)=$sha"
 
@@ -81,7 +85,7 @@ jobs:
         uses: ./.github/actions/upload-single-file-artifact
         with:
           name: smoke-toolkit
-          file: smoke-assets/smoke.mp4
+          file: demo.mp4
           retention-days: '1'
           debug-env: 'true'
 
@@ -92,3 +96,47 @@ jobs:
           download-dir: downloaded
           expected-sha256: ${{ steps.sha.outputs.sha256 }}
           debug-env: 'true'
+
+      - name: Comment PR with artifact link
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const runId = context.runId
+            const artifactName = 'smoke-toolkit'
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id: runId }
+            )
+
+            const artifact = artifacts.find(a => a.name === artifactName)
+            if (!artifact) {
+              core.warning(`Could not find artifact named '${artifactName}' for run ${runId}`)
+              return
+            }
+
+            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${runId}/artifacts/${artifact.id}`
+
+            const pr = context.payload.pull_request
+            const headRepoFull = pr?.head?.repo?.full_name || `${owner}/${repo}`
+            const headSha = pr?.head?.sha || context.sha
+            const repoFileUrl = `https://github.com/${headRepoFull}/blob/${headSha}/demo.mp4`
+
+            const body = [
+              '### Smoke artifact video (demo.mp4)',
+              '',
+              `- Uploaded artifact: ${artifactUrl}`,
+              `- Repo file (sanity): ${repoFileUrl}`,
+              '',
+              '_Note: GitHub PR comments don\'t reliably inline-play remote MP4 links; the artifact link is the source-of-truth._'
+            ].join('\n')
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pr.number,
+              body
+            })
