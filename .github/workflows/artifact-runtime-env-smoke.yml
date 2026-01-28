@@ -4,6 +4,15 @@ on:
   workflow_dispatch: {}
   push:
     branches:
+      - feature/single-file-upload-download
+    paths:
+      - .github/workflows/artifact-runtime-env-smoke.yml
+      - .github/actions/**
+      - scripts/upload-single-file-artifact.cjs
+      - scripts/download-single-file-artifact.cjs
+      - packages/artifact/**
+  pull_request:
+    branches:
       - main
     paths:
       - .github/workflows/artifact-runtime-env-smoke.yml
@@ -12,11 +21,23 @@ on:
       - scripts/download-single-file-artifact.cjs
       - packages/artifact/**
 
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: write
+
 jobs:
   smoke-host:
     name: Smoke (host runner)
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,20 +72,19 @@ jobs:
           echo "ACTIONS_RUNTIME_URL=${ACTIONS_RUNTIME_URL:-<unset>}"
           echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL:-<unset>}"
 
-      - name: Create tiny file
+      - name: Validate test file
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p smoke-assets
-          printf 'smoke artifact content\n' > smoke-assets/smoke.mp4
-          ls -la smoke-assets/smoke.mp4
+          test -f demo.gif
+          ls -la demo.gif
 
       - name: Compute SHA-256 (source)
         id: sha
         shell: bash
         run: |
           set -euo pipefail
-          sha=$(sha256sum smoke-assets/smoke.mp4 | awk '{print $1}')
+          sha=$(sha256sum demo.gif | awk '{print $1}')
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
           echo "SHA256(source)=$sha"
 
@@ -72,7 +92,7 @@ jobs:
         uses: ./.github/actions/upload-single-file-artifact
         with:
           name: smoke-toolkit
-          file: smoke-assets/smoke.mp4
+          file: demo.gif
           retention-days: '1'
           debug-env: 'true'
 
@@ -84,81 +104,45 @@ jobs:
           expected-sha256: ${{ steps.sha.outputs.sha256 }}
           debug-env: 'true'
 
-  smoke-container:
-    name: Smoke (container job)
-    runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.58.0-jammy
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Comment PR with artifact link
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
         with:
-          fetch-depth: 0
+          github-token: ${{ secrets.PR_COMMENT_TOKEN || github.token }}
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const runId = context.runId
+            const artifactName = 'smoke-toolkit'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id: runId }
+            )
 
-      - name: Mark workspace as safe for git
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+            const artifact = artifacts.find(a => a.name === artifactName)
+            if (!artifact) {
+              throw new Error(`Could not find artifact named '${artifactName}' for run ${runId}`)
+            }
 
-      - name: Install + build
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run bootstrap
-          npm run build
-          test -f packages/artifact/lib/artifact.js
+            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${runId}/artifacts/${artifact.id}`
 
-      - name: Print runtime env (partial)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "${ACTIONS_RUNTIME_TOKEN:-}" ]; then
-            token="$ACTIONS_RUNTIME_TOKEN"
-            echo "ACTIONS_RUNTIME_TOKEN=${token:0:6}…${token: -6} (len=${#token})"
-          else
-            echo "ACTIONS_RUNTIME_TOKEN=<unset>"
-          fi
-          echo "ACTIONS_RUNTIME_URL=${ACTIONS_RUNTIME_URL:-<unset>}"
-          echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL:-<unset>}"
+            const pr = context.payload.pull_request
+            const headRepoFull = pr?.head?.repo?.full_name || `${owner}/${repo}`
+            const headSha = pr?.head?.sha || context.sha
+            const repoFileUrl = `https://github.com/${headRepoFull}/blob/${headSha}/demo.gif`
 
-      - name: Create tiny file
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p smoke-assets
-          printf 'smoke artifact content\n' > smoke-assets/smoke.mp4
-          ls -la smoke-assets/smoke.mp4
+            const body = [
+              '### Smoke artifact (demo.gif)',
+              '',
+              artifactUrl,
+              repoFileUrl
+            ].join('\n')
 
-      - name: Compute SHA-256 (source)
-        id: sha
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha=$(sha256sum smoke-assets/smoke.mp4 | awk '{print $1}')
-          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
-          echo "SHA256(source)=$sha"
-
-      - name: Upload tiny file (toolkit zip:false)
-        uses: ./.github/actions/upload-single-file-artifact
-        with:
-          name: smoke-toolkit-container
-          file: smoke-assets/smoke.mp4
-          retention-days: '1'
-          debug-env: 'true'
-
-      - name: Download tiny file (toolkit) + verify SHA-256
-        uses: ./.github/actions/download-single-file-artifact
-        with:
-          name: smoke-toolkit-container
-          download-dir: downloaded
-          expected-sha256: ${{ steps.sha.outputs.sha256 }}
-          debug-env: 'true'
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pr.number,
+              body
+            })
+            core.info(`Posted PR comment with artifact link: ${artifactUrl}`)
