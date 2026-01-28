@@ -93,14 +93,14 @@ async function streamExtract(
       return await streamExtractExternal(url, directory)
     } catch (error) {
       lastError = error
-      core.debug(
+      core.info(
         `Artifact streamExtract attempt ${attempt}/${maxAttempts} failed for ${scrubQueryParameters(
           url
         )} -> ${directory}: ${formatError(error)}`
       )
 
       if (attempt < maxAttempts) {
-        core.debug(`Retrying in 5 seconds...`)
+        core.info(`Retrying in 5 seconds...`)
         await new Promise(resolve => setTimeout(resolve, 5000))
       }
     }
@@ -124,14 +124,14 @@ async function streamDownload(
       return await streamDownloadExternal(url, filePath)
     } catch (error) {
       lastError = error
-      core.debug(
+      core.info(
         `Artifact streamDownload attempt ${attempt}/${maxAttempts} failed for ${scrubQueryParameters(
           url
         )} -> ${filePath}: ${formatError(error)}`
       )
 
       if (attempt < maxAttempts) {
-        core.debug(`Retrying in 5 seconds...`)
+        core.info(`Retrying in 5 seconds...`)
         await new Promise(resolve => setTimeout(resolve, 5000))
       }
     }
@@ -150,7 +150,7 @@ export async function streamExtractExternal(
   opts: {timeout: number} = {timeout: 30 * 1000}
 ): Promise<StreamExtractResponse> {
   const client = new httpClient.HttpClient(getUserAgentString())
-  core.debug(
+  core.info(
     `Downloading artifact zip from blob storage: ${scrubQueryParameters(
       url
     )} -> extract to ${directory} (timeout=${opts.timeout}ms)`
@@ -168,7 +168,7 @@ export async function streamExtractExternal(
     throw error
   }
 
-  core.debug(
+  core.info(
     `Blob storage response: ${response.message.statusCode} ${response.message.statusMessage} ` +
       `(content-type=${response.message.headers?.['content-type'] ?? 'unknown'}, ` +
       `content-length=${response.message.headers?.['content-length'] ?? 'unknown'})`
@@ -183,14 +183,20 @@ export async function streamExtractExternal(
 
   return new Promise((resolve, reject) => {
     let bytesRead = 0
+    const previewLimitBytes = 512
+    let preview = Buffer.alloc(0)
+    const contentType = response.message.headers?.['content-type'] ?? 'unknown'
+    const contentLength =
+      response.message.headers?.['content-length'] ?? 'unknown'
+
     const timerFn = (): void => {
       const timeoutError = new Error(
         `Blob storage chunk did not respond in ${opts.timeout}ms (bytesRead=${bytesRead})`
       )
-      core.debug(
+      core.warning(
         `Timeout while downloading from blob storage: ${scrubQueryParameters(
           url
-        )} (bytesRead=${bytesRead})`
+        )} (bytesRead=${bytesRead}, content-type=${contentType}, content-length=${contentLength})`
       )
       response.message.destroy(timeoutError)
       reject(timeoutError)
@@ -198,24 +204,38 @@ export async function streamExtractExternal(
     const timer = setTimeout(timerFn, opts.timeout)
 
     const hash = crypto.createHash('sha256')
-    const hashingStream = createHashingTransform(hash, chunkBytes => {
-      bytesRead += chunkBytes
-    })
+    const hashingStream = createHashingTransform(hash)
 
     const extractor = unzip.Extract({path: directory})
 
     extractor.on('error', (error: Error) => {
-      core.debug(
-        `unzip.Extract error while extracting to ${directory}: ${formatError(
-          error
-        )}`
+      const previewHex = preview.length ? preview.toString('hex') : '<empty>'
+      const previewUtf8 = preview.length
+        ? preview
+            .toString('utf8')
+            .replace(new RegExp('[^\\x20-\\x7E\\r\\n\\t]', 'g'), '.')
+        : '<empty>'
+
+      core.warning(
+        `unzip.Extract error while extracting to ${directory} (bytesRead=${bytesRead}, content-type=${contentType}, content-length=${contentLength}). ` +
+          `First ${preview.length} bytes (hex)=${previewHex} (utf8)=${previewUtf8}. ` +
+          `Error: ${formatError(error)}`
       )
       clearTimeout(timer)
-      reject(error)
+      reject(
+        new Error(
+          `Not a valid zip file (content-type=${contentType}, content-length=${contentLength}, bytesRead=${bytesRead})`
+        )
+      )
     })
 
     response.message
-      .on('data', () => {
+      .on('data', (chunk: Buffer) => {
+        bytesRead += chunk.length
+        if (preview.length < previewLimitBytes) {
+          const remaining = previewLimitBytes - preview.length
+          preview = Buffer.concat([preview, chunk.subarray(0, remaining)])
+        }
         timer.refresh()
       })
       .on('error', (error: Error) => {
@@ -246,7 +266,7 @@ export async function streamDownloadExternal(
   opts: {timeout: number} = {timeout: 30 * 1000}
 ): Promise<StreamExtractResponse> {
   const client = new httpClient.HttpClient(getUserAgentString())
-  core.debug(
+  core.info(
     `Downloading artifact zip from blob storage: ${scrubQueryParameters(
       url
     )} -> ${filePath} (timeout=${opts.timeout}ms)`
@@ -264,7 +284,7 @@ export async function streamDownloadExternal(
     throw error
   }
 
-  core.debug(
+  core.info(
     `Blob storage response: ${response.message.statusCode} ${response.message.statusMessage} ` +
       `(content-type=${response.message.headers?.['content-type'] ?? 'unknown'}, ` +
       `content-length=${response.message.headers?.['content-length'] ?? 'unknown'})`
@@ -279,14 +299,17 @@ export async function streamDownloadExternal(
 
   return new Promise((resolve, reject) => {
     let bytesRead = 0
+    const contentType = response.message.headers?.['content-type'] ?? 'unknown'
+    const contentLength =
+      response.message.headers?.['content-length'] ?? 'unknown'
     const timerFn = (): void => {
       const timeoutError = new Error(
         `Blob storage chunk did not respond in ${opts.timeout}ms (bytesRead=${bytesRead})`
       )
-      core.debug(
+      core.warning(
         `Timeout while downloading from blob storage: ${scrubQueryParameters(
           url
-        )} (bytesRead=${bytesRead})`
+        )} (bytesRead=${bytesRead}, content-type=${contentType}, content-length=${contentLength})`
       )
       response.message.destroy(timeoutError)
       reject(timeoutError)
@@ -294,9 +317,7 @@ export async function streamDownloadExternal(
     const timer = setTimeout(timerFn, opts.timeout)
 
     const hash = crypto.createHash('sha256')
-    const hashingStream = createHashingTransform(hash, chunkBytes => {
-      bytesRead += chunkBytes
-    })
+    const hashingStream = createHashingTransform(hash)
     const out = createWriteStream(filePath)
 
     out.on('error', error => {
@@ -305,7 +326,8 @@ export async function streamDownloadExternal(
     })
 
     response.message
-      .on('data', () => {
+      .on('data', (chunk: Buffer) => {
+        bytesRead += chunk.length
         timer.refresh()
       })
       .on('error', (error: Error) => {
