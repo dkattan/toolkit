@@ -15,7 +15,9 @@ module.exports = {
     }]
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(@octokit|universal-user-agent|before-after-hook)/)'
+    // Some dependencies (notably Octokit packages) ship ESM and may be nested under other deps.
+    // Allow transforming these packages even when they appear in nested node_modules paths.
+    '/node_modules/(?!.*(@octokit|universal-user-agent|before-after-hook)/)'
   ],
   verbose: true
 }

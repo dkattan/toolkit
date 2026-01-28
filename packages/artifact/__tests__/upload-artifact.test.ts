@@ -2,12 +2,12 @@ import * as uploadZipSpecification from '../src/internal/upload/upload-zip-speci
 import * as zip from '../src/internal/upload/zip'
 import * as util from '../src/internal/shared/util'
 import * as config from '../src/internal/shared/config'
-import { ArtifactServiceClientJSON } from '../src/generated'
+import {ArtifactServiceClientJSON} from '../src/generated'
 import * as blobUpload from '../src/internal/upload/blob-upload'
-import { uploadArtifact } from '../src/internal/upload/upload-artifact'
-import { noopLogs } from './common'
-import { FilesNotFoundError } from '../src/internal/shared/errors'
-import { BlockBlobUploadStreamOptions } from '@azure/storage-blob'
+import {uploadArtifact} from '../src/internal/upload/upload-artifact'
+import {noopLogs} from './common'
+import {FilesNotFoundError} from '../src/internal/shared/errors'
+import {BlockBlobUploadStreamOptions} from '@azure/storage-blob'
 import * as fs from 'fs'
 import * as path from 'path'
 import unzip from 'unzip-stream'
@@ -28,9 +28,9 @@ jest.mock('@azure/storage-blob', () => ({
 const fixtures = {
   uploadDirectory: path.join(__dirname, '_temp', 'plz-upload'),
   files: [
-    { name: 'file1.txt', content: 'test 1 file content' },
-    { name: 'file2.txt', content: 'test 2 file content' },
-    { name: 'file3.txt', content: 'test 3 file content' },
+    {name: 'file1.txt', content: 'test 1 file content'},
+    {name: 'file2.txt', content: 'test 2 file content'},
+    {name: 'file3.txt', content: 'test 3 file content'},
     {
       name: 'real.txt',
       content: 'from a symlink'
@@ -153,7 +153,7 @@ describe('upload-artifact', () => {
       .mockReturnValue(Promise.resolve(new zip.ZipUploadStream(1)))
     jest
       .spyOn(ArtifactServiceClientJSON.prototype, 'CreateArtifact')
-      .mockReturnValue(Promise.resolve({ ok: false, signedUploadUrl: '' }))
+      .mockReturnValue(Promise.resolve({ok: false, signedUploadUrl: ''}))
 
     const uploadResp = uploadArtifact(
       fixtures.inputs.artifactName,
@@ -209,7 +209,7 @@ describe('upload-artifact', () => {
     )
     jest
       .spyOn(ArtifactServiceClientJSON.prototype, 'FinalizeArtifact')
-      .mockReturnValue(Promise.resolve({ ok: false, artifactId: '' }))
+      .mockReturnValue(Promise.resolve({ok: false, artifactId: ''}))
 
     const uploadResp = uploadArtifact(
       fixtures.inputs.artifactName,
@@ -255,22 +255,22 @@ describe('upload-artifact', () => {
         maxConcurrency?: number,
         options?: BlockBlobUploadStreamOptions
       ) => {
-        const { onProgress } = options || {}
+        const {onProgress} = options || {}
 
         if (fs.existsSync(uploadedZip)) {
           fs.unlinkSync(uploadedZip)
         }
         const uploadedZipStream = fs.createWriteStream(uploadedZip)
 
-        onProgress?.({ loadedBytes: 0 })
+        onProgress?.({loadedBytes: 0})
         return new Promise((resolve, reject) => {
           stream.on('data', chunk => {
             loadedBytes += chunk.length
             uploadedZipStream.write(chunk)
-            onProgress?.({ loadedBytes })
+            onProgress?.({loadedBytes})
           })
           stream.on('end', () => {
-            onProgress?.({ loadedBytes })
+            onProgress?.({loadedBytes})
             uploadedZipStream.end()
             resolve({})
           })
@@ -281,7 +281,7 @@ describe('upload-artifact', () => {
       }
     )
 
-    const { id, size, digest } = await uploadArtifact(
+    const {id, size, digest} = await uploadArtifact(
       fixtures.inputs.artifactName,
       fixtures.files.map(file =>
         path.join(fixtures.uploadDirectory, file.name)
@@ -300,12 +300,12 @@ describe('upload-artifact', () => {
       'extracted'
     )
     if (fs.existsSync(extractedDirectory)) {
-      fs.rmdirSync(extractedDirectory, { recursive: true })
+      fs.rmdirSync(extractedDirectory, {recursive: true})
     }
 
     const extract = new Promise((resolve, reject) => {
       fs.createReadStream(uploadedZip)
-        .pipe(unzip.Extract({ path: extractedDirectory }))
+        .pipe(unzip.Extract({path: extractedDirectory}))
         .on('close', () => {
           resolve(true)
         })
@@ -346,7 +346,7 @@ describe('upload-artifact', () => {
       )
     jest
       .spyOn(ArtifactServiceClientJSON.prototype, 'FinalizeArtifact')
-      .mockReturnValue(Promise.resolve({ ok: true, artifactId: '2' }))
+      .mockReturnValue(Promise.resolve({ok: true, artifactId: '2'}))
 
     const uploadFileSpy = jest
       .spyOn(blobUpload, 'uploadFileToBlobStorage')
@@ -357,11 +357,11 @@ describe('upload-artifact', () => {
     const uploadZipSpy = jest.spyOn(blobUpload, 'uploadZipToBlobStorage')
     const createZipSpy = jest.spyOn(zip, 'createZipUploadStream')
 
-    const { id, size, digest } = await uploadArtifact(
+    const {id, size, digest} = await uploadArtifact(
       'single-file-artifact',
       [singleFilePath],
       fixtures.uploadDirectory,
-      { zip: false }
+      {zip: false}
     )
 
     expect(id).toBe(2)
@@ -406,8 +406,8 @@ describe('upload-artifact', () => {
         maxConcurrency?: number,
         options?: BlockBlobUploadStreamOptions
       ) => {
-        const { onProgress, abortSignal } = options || {}
-        onProgress?.({ loadedBytes: 0 })
+        const {onProgress, abortSignal} = options || {}
+        onProgress?.({loadedBytes: 0})
         return new Promise(resolve => {
           abortSignal?.addEventListener('abort', () => {
             resolve({})
