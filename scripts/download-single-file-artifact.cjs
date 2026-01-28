@@ -111,28 +111,40 @@ async function downloadSingleFileArtifact() {
     );
   }
 
-  // IMPORTANT: toolkit signature expects options, not a bare download path.
-  const res = await client.downloadArtifact(artifactId, { path: downloadDirAbs });
+  // IMPORTANT:
+  // - Upload action uses zip:false (single file is stored as raw bytes).
+  // - Therefore download should use unzip:false (the response is not a ZIP archive).
+  // - downloadArtifact() may return either a directory (unzipped) or a file path (raw).
+  const res = await client.downloadArtifact(artifactId, {
+    path: downloadDirAbs,
+    unzip: false,
+  });
   const downloadPath = res && res.downloadPath ? res.downloadPath : downloadDirAbs;
 
-  const entries = fs.readdirSync(downloadPath, { withFileTypes: true });
-  const files = entries
-    .filter(e => e.isFile())
-    .map(e => path.join(downloadPath, e.name));
-
-  if (files.length === 0) {
-    throw new Error(
-      `Downloaded artifact '${artifactName}' to '${downloadPath}' but found no files.`,
-    );
+  let fileToHash;
+  if (fs.existsSync(downloadPath) && fs.statSync(downloadPath).isFile()) {
+    fileToHash = downloadPath;
   }
+  else {
+    const entries = fs.readdirSync(downloadPath, { withFileTypes: true });
+    const files = entries
+      .filter(e => e.isFile())
+      .map(e => path.join(downloadPath, e.name));
 
-  if (files.length !== 1) {
-    console.warn(
-      `::warning::Expected a single file in downloaded artifact '${artifactName}', but found ${files.length}. Using the first file for hash verification: ${files[0]}`,
-    );
+    if (files.length === 0) {
+      throw new Error(
+        `Downloaded artifact '${artifactName}' to '${downloadPath}' but found no files.`,
+      );
+    }
+
+    if (files.length !== 1) {
+      console.warn(
+        `::warning::Expected a single file in downloaded artifact '${artifactName}', but found ${files.length}. Using the first file for hash verification: ${files[0]}`,
+      );
+    }
+
+    fileToHash = files[0];
   }
-
-  const fileToHash = files[0];
   const actualSha256 = await sha256FileHex(fileToHash);
 
   console.log(`Downloaded artifact '${artifactName}' to: ${downloadPath}`);
