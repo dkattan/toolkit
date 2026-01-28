@@ -101,42 +101,50 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.PR_COMMENT_TOKEN || github.token }}
           script: |
-            const owner = context.repo.owner
-            const repo = context.repo.repo
-            const runId = context.runId
-            const artifactName = 'smoke-toolkit'
+            try {
+              const owner = context.repo.owner
+              const repo = context.repo.repo
+              const runId = context.runId
+              const artifactName = 'smoke-toolkit'
 
-            const artifacts = await github.paginate(
-              github.rest.actions.listWorkflowRunArtifacts,
-              { owner, repo, run_id: runId }
-            )
+              const artifacts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id: runId }
+              )
 
-            const artifact = artifacts.find(a => a.name === artifactName)
-            if (!artifact) {
-              core.warning(`Could not find artifact named '${artifactName}' for run ${runId}`)
-              return
+              const artifact = artifacts.find(a => a.name === artifactName)
+              if (!artifact) {
+                core.warning(`Could not find artifact named '${artifactName}' for run ${runId}`)
+                return
+              }
+
+              const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${runId}/artifacts/${artifact.id}`
+
+              const pr = context.payload.pull_request
+              const headRepoFull = pr?.head?.repo?.full_name || `${owner}/${repo}`
+              const headSha = pr?.head?.sha || context.sha
+              const repoFileUrl = `https://github.com/${headRepoFull}/blob/${headSha}/demo.mp4`
+
+              const body = [
+                '### Smoke artifact video (demo.mp4)',
+                '',
+                `- Uploaded artifact: ${artifactUrl}`,
+                `- Repo file (sanity): ${repoFileUrl}`,
+                '',
+                '_Note: GitHub PR comments may require a token with write permissions. If this step logs a 403, add a PR_COMMENT_TOKEN secret or enable workflow write permissions._'
+              ].join('\n')
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body
+              })
+              core.info(`Posted PR comment with artifact link: ${artifactUrl}`)
+            } catch (error) {
+              core.warning(
+                `Unable to create PR comment. This does not affect artifact upload/download validation. Error: ${error?.message || String(error)}`
+              )
             }
-
-            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${runId}/artifacts/${artifact.id}`
-
-            const pr = context.payload.pull_request
-            const headRepoFull = pr?.head?.repo?.full_name || `${owner}/${repo}`
-            const headSha = pr?.head?.sha || context.sha
-            const repoFileUrl = `https://github.com/${headRepoFull}/blob/${headSha}/demo.mp4`
-
-            const body = [
-              '### Smoke artifact video (demo.mp4)',
-              '',
-              `- Uploaded artifact: ${artifactUrl}`,
-              `- Repo file (sanity): ${repoFileUrl}`,
-              '',
-              '_Note: GitHub PR comments don\'t reliably inline-play remote MP4 links; the artifact link is the source-of-truth._'
-            ].join('\n')
-
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: pr.number,
-              body
-            })
